@@ -1,6 +1,7 @@
 import os
 import time
 import rrdtool
+from collections import defaultdict
 
 class Gauge(object):
     def __init__(self, name, min, max):
@@ -45,45 +46,45 @@ class Avg(object):
         result.append(str(self.rows))
         return "'" + ":".join(result) + "'"
 
-class Row(object):
+class Table(object):
+    ds = defaultdict(list)
+    rra = defaultdict(list)
+
     def __init__(self):
         pass
 
-    def Gauge(cls, name, min, max):
-        g = Gauge(name, min, max)
-        cls.ds.append(g)
+    @classmethod
+    def Gauge(cls, name, min=0, max=100):
+        g = Gauge(name, min=0, max=100)
+        Table.ds[cls.TableName()].append(g)
         return g
-    Gauge = classmethod(Gauge)
 
-    def Derive(cls, name, min, max):
+    @classmethod
+    def Derive(cls, name, min=0, max='U'):
         d = Derive(name, min, max)
-        cls.ds.append(d)
+        Table.ds[cls.TableName()].append(d)
         return d
-    Derive = classmethod(Derive)
 
+    @classmethod
     def Avg(cls, steps, rows):
-        if not cls.ds:
-            cls.ds = []
-        if not cls.rra:
-            rra = []
         a = Avg(steps, rows)
-        cls.rra.append(a)
+        Table.rra[cls.TableName()].append(a)
         return a
-    Avg = classmethod(Avg)
         
+    @classmethod
     def Fields(cls):
         result = []
-        for d in cls.ds:
-            result.append(d.create_str())
-        for a in cls.rra:
-            result.append(a.create_str())
+        a = lambda x : result.append(x.create_str())
+        [a(x) for x in Table.ds[cls.TableName()]]
+        [a(x) for x in Table.rra[cls.TableName()]]
+
         return ", ".join(result)
-    Fields = classmethod(Fields)
 
     def values(self):
         result = []
-        for d in self.ds:
-            result.append(str(self.__dict__[d.name]))
+        [result.append(str(self.__dict__[d.name]))
+         for d in Table.ds[self.TableName()]]
+            
         return ":".join(result)
 
 tables = []
@@ -93,7 +94,7 @@ def add(row_type):
     
 def run(data_dir):
     for t in tables:
-        pathname = os.path.join(data_dir, t.__name__ + ".rrd")
+        pathname = os.path.join(data_dir, t.TableName() + ".rrd")
         if not os.path.isfile(pathname):
             cmd = ("rrdtool.create('" + pathname + "', " +
                    "'--step', '" + str(t.step) + "', " +
@@ -103,7 +104,7 @@ def run(data_dir):
     while True:
         time.sleep(15)
         for t in tables:
-            pathname = os.path.join(data_dir, t.__name__ + ".rrd")
+            pathname = os.path.join(data_dir, t.TableName() + ".rrd")
             v = t()
             print pathname, 'N:' + v.values()
             rrdtool.update(pathname, 'N:' + v.values())
